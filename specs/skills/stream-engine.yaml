@@ -1,0 +1,59 @@
+name: stream-engine
+version: 1.0.0
+description: "Smart YouTube Streaming Engine - Lightweight, multi-account, multi-platform streaming with smart FX, visualizers, scheduling, and anti-ghosting"
+
+context:
+  project_name: "Stream Engine"
+  project_type: "Local Web App / Self-hosted Streaming Platform"
+  primary_goal: "Build a lightweight, no-install web app for 24/7 YouTube music streaming with smart features"
+  requirements:
+    - "Lightweight and fast (runs in browser, no install)"
+    - "Multi-account, multi-live streaming per account"
+    - "Smart loop (audio and video) with crossfade"
+    - "Anti-ghosting: auto-reconnect on network loss"
+    - "Smart scheduling & live duration (cron + max hours)"
+    - "Multi-platform via RTMP (YouTube + Custom RTMP)"
+    - "Smart FX engine: video/audio filters to minimize re-upload detection"
+    - "Multiple smart audio noise generators (white/pink/brown/blue/violet/velvet)"
+    - "No installation needed (web-based)"
+    - "Optional: Docker deployment with GPU support"
+    - "Optional: Multiple smart visualizer generators"
+    - "Smart live streaming title, tags, description with templates"
+  decisions:
+    target_platforms: ["YouTube", "Custom RTMP"]
+    visualizer_approach: "Hybrid (FFmpeg-native built-in + browser-based advanced)"
+    hardware: "GPU-enabled (NVIDIA NVENC / Intel QSV)"
+    initial_scale: "1-3 concurrent streams"
+    content_type: "Music / Audio-reactive (24/7 streams, visualizers critical)"
+
+tech_stack:
+  monorepo: "pnpm workspaces"
+  packages:
+    - name: "@stream-engine/shared"
+      purpose: "Shared types, constants, utilities, Zod schemas"
+      language: "TypeScript"
+    - name: "@stream-engine/server"
+      purpose: "Fastify API server, auth, scheduling, stream management, FFmpeg orchestration"
+      language: "TypeScript"
+      runtime: "Node.js 20+"
+    - name: "@stream-engine/client"
+      purpose: "React SPA dashboard"
+      language: "TypeScript"
+      build: "Vite"
+    - name: "@stream-engine/ffmpeg-worker"
+      purpose: "FFmpeg process management, filter graph generation, health monitoring"
+      language: "TypeScript"
+    - name: "@stream-engine/visualizer-worker"
+      purpose: "Browser-based visualizer rendering (Puppeteer), custom shaders"
+      language: "TypeScript"
+
+architecture:
+  pattern: "Modular monolith with worker separation"
+  core_services:
+    auth_service: "Google OAuth 2.0 PKCE, token encryption (AES-256-GCM), auto-refresh"
+    stream_service: "Stream CRUD, lifecycle, FFmpeg orchestration"
+    scheduler_service: "Cron + BullMQ scheduling, broadcast creation"
+    youtube_service: "YouTube Live Streaming API wrapper"
+    fx_service: "Video/Audio filter graphs, presets, CID-aware"
+    visualizer_service: "FFmpeg-native + browser pool visualizers"
+    rtmp_relay_service: "Node-Media-Server + FFmpeg tee multi-platform relay"

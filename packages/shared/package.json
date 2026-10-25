@@ -1,0 +1,30 @@
+{
+  "name": "@stream-engine/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./utils/encryption": "./dist/utils/encryption.js",
+    "./utils/result": "./dist/utils/result.js",
+    "./utils/hwaccel": "./dist/utils/hwaccel.js",
+    "./constants": "./dist/constants/index.js",
+    "./schemas/stream.schema": "./dist/schemas/stream.schema.js",
+    "./schemas/auth.schema": "./dist/schemas/auth.schema.js",
+    "./types": "./dist/types/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  }
+}

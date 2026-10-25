@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String           @id @default(cuid())
+  email        String           @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  fxPresets    FxPreset[]
+  schedules    Schedule[]
+  streams      Stream[]
+  visualizers  Visualizer[]
+  accounts     YouTubeAccount[]
+
+  @@index([email])
+}
+
+model YouTubeAccount {
+  id              String    @id @default(cuid())
+  userId          String
+  channelId       String    @unique
+  channelName     String
+  channelHandle   String?
+  refreshTokenEnc String
+  accessTokenEnc  String?
+  tokenExpiry     DateTime?
+  avatarUrl       String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  streams         Stream[]
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([channelId])
+}
+
+model Stream {
+  id                   String         @id @default(cuid())
+  userId               String
+  accountId            String
+  name                 String
+  description          String?
+  sourceType           String         @default("VIDEO_FILE")
+  videoFiles           String         @default("[]")
+  playlistId           String?
+  rtmpPushKey          String?        @unique
+  loopMode             String         @default("INFINITE")
+  shuffleEnabled       Boolean        @default(false)
+  crossfadeDuration    Int            @default(3)
+  outputPlatforms      String         @default("['YOUTUBE']")
+  customRtmpUrls       String?
+  resolution           String         @default("1920x1080")
+  fps                  Int            @default(30)
+  videoBitrate         Int            @default(4000)
+  audioBitrate         Int            @default(128)
+  codec                String         @default("libx264")
+  preset               String         @default("veryfast")
+  fxPresetId           String?
+  customFxFilters      String?
+  audioSource          String         @default("VIDEO")
+  audioFiles           String         @default("[]")
+  noiseProfile         String?
+  noiseAmplitude       Float          @default(0.01)
+  scheduleId           String?
+  maxDuration          Int?
+  autoRestart          Boolean        @default(true)
+  status               String         @default("STOPPED")
+  currentBroadcastId   String?
+  startedAt            DateTime?
+  stoppedAt            DateTime?
+  totalUptime          Int            @default(0)
+  titleTemplate        String?
+  descriptionTemplate  String?
+  tagsTemplate         String?
+  thumbnailPath        String?
+  genre                String?
+  mood                 String?
+  shuffleHistory       String         @default("[]")
+  visualizerId         String?
+  reconnectAttempts    Int            @default(0)
+  maxReconnectAttempts Int            @default(10)
+  reconnectDelay       Int            @default(5)
+  healthCheckInterval  Int            @default(15)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  visualizer           Visualizer?    @relation(fields: [visualizerId], references: [id])
+  schedule             Schedule?      @relation(fields: [scheduleId], references: [id])
+  fxPreset             FxPreset?      @relation(fields: [fxPresetId], references: [id])
+  account              YouTubeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs                 StreamLog[]
+
+  @@index([userId, status])
+  @@index([accountId, status])
+  @@index([scheduleId])
+  @@index([status, startedAt])
+}
+
+model Schedule {
+  id             String    @id @default(cuid())
+  userId         String
+  name           String
+  cronExpression String
+  timezone       String    @default("UTC")
+  startDate      DateTime?
+  endDate        DateTime?
+  maxDuration    Int?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  streams        Stream[]
+
+  @@index([userId, isActive])
+}
+
+model FxPreset {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  filterGraph  String
+  videoFilters String
+  audioFilters String
+  intensity    String   @default("MEDIUM")
+  isBuiltIn    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  streams      Stream[]
+
+  @@index([userId])
+  @@index([isBuiltIn])
+}
+
+model Visualizer {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  type             String
+  config           String
+  backgroundType   String
+  backgroundConfig String
+  width            Int      @default(1920)
+  height           Int      @default(1080)
+  fps              Int      @default(30)
+  isBuiltIn        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  streams          Stream[]
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isBuiltIn])
+}
+
+model StreamLog {
+  id        String   @id @default(cuid())
+  streamId  String
+  level     String
+  message   String
+  metadata  String?
+  createdAt DateTime @default(now())
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@index([streamId, createdAt])
+  @@index([level])
+}
