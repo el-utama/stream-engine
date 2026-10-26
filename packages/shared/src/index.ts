@@ -413,19 +413,6 @@ export interface MetadataTemplate {
   tags: string;
 }
 
-export interface StreamContext {
-  date: string;
-  time: string;
-  playlistName?: string;
-  currentVideo?: string;
-  videoIndex: number;
-  totalVideos: number;
-  streamNumber: number;
-  currentViewers?: number;
-  genre?: string;
-  mood?: string;
-}
-
 // ==================== WebSocket Events ====================
 
 export interface SocketEvents {
@@ -470,6 +457,10 @@ export * from './constants/index.js';
 export * from './utils/encryption.js';
 export * from './utils/result.js';
 export * from './utils/hwaccel.js';
+export * from './utils/metadata-renderer.js';
+
+// Re-export VMAF types
+export * from './types/vmaf.js';
 
 // Re-export schemas
 export * from './schemas/stream.schema.js';

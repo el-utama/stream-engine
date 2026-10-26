@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config/index.js';
-import { initEncryption } from './utils/encryption.js';
+import { initEncryption, getEncryption } from './utils/encryption.js';
 import { FFmpegProcessor } from '@stream-engine/ffmpeg-worker';
 
 // Type augmentation for Fastify instance
@@ -23,7 +23,6 @@ declare module 'fastify' {
     rtmpRelayService: any; // RtmpRelayService
     healthMonitorService: any; // HealthMonitorService
     streamService: any; // StreamService
-    youtubeService: any; // YouTubeService
     getQueue: (name: string) => any;
     getWorker: (name: string, processor: any) => any;
   }
@@ -44,9 +43,9 @@ import healthRoutes from './routes/health.js';
 
 // Services - import classes only
 import { StreamService } from './services/stream.service.js';
-import { YouTubeService } from './services/youtube.service.js';
 import { RtmpRelayService } from './services/rtmp-relay.service.js';
 import { HealthMonitorService } from './services/health-monitor.service.js';
+import { initSchedulerWorker, scheduleRecurringJobs, shutdownScheduler } from './workers/scheduler.worker.js';
 
 async function main() {
   // Initialize encryption
@@ -62,8 +61,9 @@ async function main() {
     },
   });
 
-  // Decorate config
+  // Decorate config and encryption
   app.decorate('config', config);
+  app.decorate('encryption', getEncryption());
 
   // Initialize Redis directly (bypass plugin encapsulation)
   const Redis = (await import('ioredis')).default;
@@ -111,6 +111,9 @@ async function main() {
   });
 
   app.addHook('onClose', async (instance) => {
+    // Shutdown scheduler worker
+    await shutdownScheduler();
+    
     await instance.redis.quit();
     for (const queue of instance.queues.values()) {
       await queue.close();
@@ -129,9 +132,6 @@ async function main() {
   const streamService = new StreamService(app);
   app.decorate('streamService', streamService);
 
-  const youtubeService = new YouTubeService(app);
-  app.decorate('youtubeService', youtubeService);
-
   const rtmpRelayService = new RtmpRelayService(app);
   app.decorate('rtmpRelayService', rtmpRelayService);
 
@@ -148,6 +148,13 @@ async function main() {
 
   // Start health monitor
   healthMonitorService.start();
+
+  // Initialize Scheduler Worker
+  const schedulerWorker = initSchedulerWorker(app.prisma, streamService);
+  app.decorate('schedulerWorker', schedulerWorker);
+
+  // Schedule recurring jobs for active schedules
+  await scheduleRecurringJobs(app.prisma);
 
   // Register routes
   await app.register(authRoutes, { prefix: '/api/auth' });

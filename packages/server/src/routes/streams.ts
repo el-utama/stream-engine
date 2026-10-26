@@ -61,7 +61,7 @@ const streamRoutes: FastifyPluginAsync = async (app) => {
         description: { type: 'string', maxLength: 500 },
         accountId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
         sourceType: { type: 'string', enum: ['VIDEO_FILE', 'PLAYLIST', 'RTMP_PUSH', 'WEBCAM', 'VISUALIZER'] },
-        videoFiles: { type: 'array', items: { type: 'string' }, minItems: 1 },
+        videoFiles: { type: 'array', items: { type: 'string' }, minItems: 0 },
         playlistId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
         outputPlatforms: { type: 'array', items: { type: 'string', enum: ['YOUTUBE', 'TWITCH', 'FACEBOOK', 'CUSTOM_RTMP'] }, minItems: 1 },
         customRtmpUrls: { type: 'object' },
@@ -74,13 +74,13 @@ const streamRoutes: FastifyPluginAsync = async (app) => {
         loopMode: { type: 'string', enum: ['INFINITE', 'ONCE', 'COUNT'], default: 'INFINITE' },
         shuffleEnabled: { type: 'boolean', default: false },
         crossfadeDuration: { type: 'integer', minimum: 0, maximum: 10, default: 3 },
-        fxPresetId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
+        fxPresetId: { type: 'string', pattern: '^(builtin-)?[a-z0-9]{25}$' },
         customFxFilters: { type: 'string' },
         audioSource: { type: 'string', enum: ['VIDEO', 'FILE', 'NOISE', 'MIX'], default: 'VIDEO' },
         audioFiles: { type: 'array', items: { type: 'string' } },
         noiseProfile: { type: 'string', enum: ['WHITE', 'PINK', 'BROWN', 'BLUE', 'VIOLET', 'VELVET', 'CUSTOM'] },
         noiseAmplitude: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
-        scheduleId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
+        scheduleId: { type: 'string', pattern: '^(builtin-)?[a-z0-9]{25}$' },
         maxDuration: { type: 'integer', minimum: 1, maximum: 168 },
         autoRestart: { type: 'boolean', default: true },
         titleTemplate: { type: 'string', maxLength: 200 },
@@ -88,7 +88,7 @@ const streamRoutes: FastifyPluginAsync = async (app) => {
         tagsTemplate: { type: 'string', maxLength: 500 },
         thumbnailPath: { type: 'string' }
       },
-      required: ['name', 'accountId', 'sourceType', 'outputPlatforms'],
+      required: ['name', 'sourceType', 'outputPlatforms', 'customRtmpUrls'],
       additionalProperties: false
     }},
   }, async (request, reply) => {
@@ -125,13 +125,13 @@ const streamRoutes: FastifyPluginAsync = async (app) => {
         loopMode: { type: 'string', enum: ['INFINITE', 'ONCE', 'COUNT'] },
         shuffleEnabled: { type: 'boolean' },
         crossfadeDuration: { type: 'integer', minimum: 0, maximum: 10 },
-        fxPresetId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
+        fxPresetId: { type: 'string', pattern: '^(builtin-)?[a-z0-9]{25}$' },
         customFxFilters: { type: 'string' },
         audioSource: { type: 'string', enum: ['VIDEO', 'FILE', 'NOISE', 'MIX'] },
         audioFiles: { type: 'array', items: { type: 'string' } },
         noiseProfile: { type: 'string', enum: ['WHITE', 'PINK', 'BROWN', 'BLUE', 'VIOLET', 'VELVET', 'CUSTOM'] },
         noiseAmplitude: { type: 'number', minimum: 0, maximum: 1 },
-        scheduleId: { type: 'string', pattern: '^[a-z0-9]{25}$' },
+        scheduleId: { type: 'string', pattern: '^(builtin-)?[a-z0-9]{25}$' },
         maxDuration: { type: 'integer', minimum: 1, maximum: 168 },
         autoRestart: { type: 'boolean' },
         titleTemplate: { type: 'string', maxLength: 200 },
@@ -158,7 +158,7 @@ const streamRoutes: FastifyPluginAsync = async (app) => {
   }, async (request: FastifyRequest<{ Params: StreamIdParams }>, reply) => {
     const result = await streamService.start(request.params.id);
     if (!result.ok) return reply.code(400).send({ error: result.error.message });
-    return { success: true, broadcastId: result.value.currentBroadcastId };
+    return { success: true, rtmpTargets: result.value.rtmpTargets };
   });
 
   app.post('/:id/stop', {

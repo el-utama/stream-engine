@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.pnpm/
+
+# Build outputs
+dist/
+build/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Database
+packages/server/prisma/data/*.sqlite
+packages/server/prisma/data/*.sqlite-journal
+
+# Test coverage
+coverage/
+
+# OS
+Thumbs.db

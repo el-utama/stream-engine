@@ -36,7 +36,6 @@ model YouTubeAccount {
   isActive        Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-  streams         Stream[]
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -46,7 +45,7 @@ model YouTubeAccount {
 model Stream {
   id                   String         @id @default(cuid())
   userId               String
-  accountId            String
+  accountId            String?
   name                 String
   description          String?
   sourceType           String         @default("VIDEO_FILE")
@@ -95,7 +94,6 @@ model Stream {
   visualizer           Visualizer?    @relation(fields: [visualizerId], references: [id])
   schedule             Schedule?      @relation(fields: [scheduleId], references: [id])
   fxPreset             FxPreset?      @relation(fields: [fxPresetId], references: [id])
-  account              YouTubeAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs                 StreamLog[]
 
@@ -133,6 +131,18 @@ model FxPreset {
   audioFilters String
   intensity    String   @default("MEDIUM")
   isBuiltIn    Boolean  @default(false)
+  
+  // VMAF Quality Testing
+  vmafScore         Float?
+  vmafDetails       String?
+  vmafTestedAt      DateTime?
+  
+  // Custom Filter Chains
+  customFilterGraph String?
+  tags              String?
+  version           Int           @default(1)
+  previousVersionId String?
+  
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -3,6 +3,7 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { google } from 'googleapis';
 import { z } from 'zod';
+import * as crypto from 'crypto';
 import { authCallbackSchema, authUrlQuerySchema } from '@stream-engine/shared/schemas/auth.schema';
 import { getEncryption } from '../utils/encryption.js';
 
@@ -36,13 +37,13 @@ const authRoutes: FastifyPluginAsync = async (app) => {
 
   // Generate PKCE challenge
   function generateCodeVerifier(): string {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
+    const array = crypto.randomBytes(32);
     return Buffer.from(array).toString('base64url');
   }
 
   function generateCodeChallenge(verifier: string): string {
-    return verifier;
+    // PKCE S256: code_challenge = BASE64URL(SHA256(code_verifier))
+    return crypto.createHash('sha256').update(verifier).digest('base64url');
   }
 
   // GET /api/auth/youtube/url - Get OAuth URL
@@ -60,7 +61,10 @@ const authRoutes: FastifyPluginAsync = async (app) => {
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
-    await app.redis.setex(`oauth:verifier:${request.query.state || 'default'}`, 600, codeVerifier);
+    // Always generate a state if not provided
+    const state = request.query.state || crypto.randomUUID();
+    
+    await app.redis.setex(`oauth:verifier:${state}`, 600, codeVerifier);
 
     const url = oauth2Client.generateAuthUrl({
       access_type: 'offline',
@@ -72,7 +76,7 @@ const authRoutes: FastifyPluginAsync = async (app) => {
       prompt: 'consent',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
-      state: request.query.state,
+      state,
     } as any);
 
     return { url };

@@ -99,6 +99,7 @@ export class YouTubeService extends BaseService {
         snippet: {
           title: options.title,
           description: options.description,
+          scheduledStartTime: options.scheduledStartTime.toISOString(),
         },
         status: { privacyStatus: 'unlisted', selfDeclaredMadeForKids: false },
         contentDetails: { enableAutoStart: options.enableAutoStart, enableAutoStop: options.enableAutoStop },

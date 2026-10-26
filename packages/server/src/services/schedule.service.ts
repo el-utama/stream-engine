@@ -4,11 +4,11 @@ import { BaseService } from './base.service.js';
 import { Prisma } from '@prisma/client';
 
 export class ScheduleService extends BaseService {
-  async list(query: { page: number; limit: number; isActive?: boolean }) {
+  async list(query: { page: number; limit: number; isActive?: boolean; userId?: string }) {
     this.logger.info('ScheduleService.list called', { query });
     try {
       const where = {
-        userId: 'default-user',
+        userId: query.userId || 'default-user',
         ...(query.isActive !== undefined && { isActive: query.isActive })
       };
 

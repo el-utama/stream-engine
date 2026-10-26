@@ -9,10 +9,11 @@
     "./utils/encryption": "./dist/utils/encryption.js",
     "./utils/result": "./dist/utils/result.js",
     "./utils/hwaccel": "./dist/utils/hwaccel.js",
+    "./utils/metadata-renderer": "./dist/utils/metadata-renderer.js",
     "./constants": "./dist/constants/index.js",
     "./schemas/stream.schema": "./dist/schemas/stream.schema.js",
     "./schemas/auth.schema": "./dist/schemas/auth.schema.js",
-    "./types": "./dist/types/index.js"
+    "./types": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",

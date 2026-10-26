@@ -48,7 +48,6 @@ export class HealthMonitorService extends BaseService {
     try {
       const liveStreams = await this.prisma.stream.findMany({
         where: { status: 'LIVE' },
-        include: { account: true }
       });
 
       for (const stream of liveStreams) {

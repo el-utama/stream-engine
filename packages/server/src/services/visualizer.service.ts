@@ -3,6 +3,13 @@
 import { BaseService } from './base.service.js';
 import { Prisma } from '@prisma/client';
 import { BUILTIN_VISUALIZERS } from '@stream-engine/shared/constants';
+import { VisualizerFilters } from '@stream-engine/ffmpeg-worker/visualizers/builtin';
+import { spawn } from 'child_process';
+import ffmpegStatic from 'ffmpeg-static';
+import { promisify } from 'util';
+import { execFile } from 'child_process';
+
+const execFileAsync = promisify(execFile);
 
 export class VisualizerService extends BaseService {
   async list(includeBuiltIn: boolean) {
@@ -64,16 +71,33 @@ export class VisualizerService extends BaseService {
   async generateFilter(config: any): Promise<string> {
     if (config.customFilter) return config.customFilter;
 
+    let vizFilter: string;
+
     switch (config.type) {
       case 'SPECTRUM_BARS':
-        return this.buildSpectrumFilter(config);
+        vizFilter = this.buildSpectrumFilter(config);
+        break;
       case 'WAVEFORM':
-        return this.buildWaveformFilter(config);
+        vizFilter = this.buildWaveformFilter(config);
+        break;
       case 'CIRCULAR':
-        return this.buildCircularFilter(config);
+        vizFilter = this.buildCircularFilter(config);
+        break;
       default:
-        return 'color=black:1920x1080';
+        vizFilter = `color=black:size=${config.width || 1920}x${config.height || 1080}[viz]`;
     }
+
+    // Apply background overlay if configured
+    if (config.backgroundType && config.backgroundConfig) {
+      return VisualizerFilters.withBackground(vizFilter, {
+        backgroundType: config.backgroundType,
+        backgroundConfig: config.backgroundConfig,
+        width: config.width || 1920,
+        height: config.height || 1080,
+      });
+    }
+
+    return vizFilter;
   }
 
   private buildSpectrumFilter(config: any): string {
@@ -91,6 +115,47 @@ export class VisualizerService extends BaseService {
   }
 
   async generatePreview(id: string, duration: number): Promise<string> {
-    return `/preview/${id}.mp4`;
+    let visualizer: any;
+    if (id.startsWith('builtin-')) {
+      const key = id.replace('builtin-', '');
+      visualizer = BUILTIN_VISUALIZERS[key as keyof typeof BUILTIN_VISUALIZERS];
+      if (!visualizer) throw new Error('Built-in visualizer not found');
+    } else {
+      visualizer = await this.prisma.visualizer.findUnique({ where: { id } });
+      if (!visualizer) throw new Error('Visualizer not found');
+    }
+
+    const filterGraph = await this.generateFilter({
+      type: visualizer.type,
+      config: visualizer.config,
+      backgroundType: visualizer.backgroundType,
+      backgroundConfig: visualizer.backgroundConfig,
+      width: visualizer.width,
+      height: visualizer.height,
+      fps: visualizer.fps,
+    });
+
+    const outputPath = `/tmp/preview-${id}-${Date.now()}.mp4`;
+    const ffmpegPath = ffmpegStatic || 'ffmpeg';
+
+    try {
+      const args = [
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+        '-filter_complex', filterGraph,
+        '-map', '[vout]',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-b:v', '2000k',
+        '-pix_fmt', 'yuv420p',
+        '-t', String(duration || 10),
+        '-y',
+        outputPath,
+      ];
+
+      await execFileAsync(ffmpegPath, args, { timeout: 30000 });
+
+      return outputPath;
+    } catch (error: any) {
+      this.logger.error('Failed to generate preview', { error: error.message, filterGraph });
+      throw error;
+    }
   }
 }

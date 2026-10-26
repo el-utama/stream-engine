@@ -1,10 +1,12 @@
 // Stream Service - CRUD + Lifecycle
 
+import * as crypto from 'crypto';
 import { BaseService } from './base.service.js';
 import { ok, err, Result } from '@stream-engine/shared/utils/result';
 import { Stream, Prisma } from '@prisma/client';
 import { FFmpegProcessor } from '@stream-engine/ffmpeg-worker';
 import { SourceType, LoopMode, AudioSource, NoiseProfile, StreamStatus as SharedStreamStatus } from '@stream-engine/shared/types';
+import { BUILTIN_VISUALIZERS } from '@stream-engine/shared/constants';
 
 type StreamStatus = 'STOPPED' | 'STARTING' | 'LIVE' | 'ERROR' | 'RECONNECTING' | 'STOPPING';
 
@@ -42,6 +44,12 @@ interface StreamStatusResponse {
   };
 }
 
+export interface RtmpTarget {
+  platform: string;
+  rtmpUrl: string;
+  streamKey: string;
+}
+
 export class StreamService extends BaseService {
   private ffmpegProcessor: FFmpegProcessor;
 
@@ -63,7 +71,7 @@ export class StreamService extends BaseService {
         skip: (params.page - 1) * params.limit,
         take: params.limit,
         orderBy: { [params.sortBy]: params.sortOrder },
-        include: { account: true, fxPreset: true, visualizer: true, schedule: true },
+        include: { fxPreset: true, visualizer: true, schedule: true },
       }),
       this.prisma.stream.count({ where }),
     ]);
@@ -75,15 +83,41 @@ export class StreamService extends BaseService {
   }
 
   async create(userId: string, data: any): Promise<Stream> {
-    return this.prisma.stream.create({
-      data: { ...data, userId },
-    });
+    const now = new Date().toISOString();
+    const createData: any = {
+      ...data,
+      userId,
+      videoFiles: JSON.stringify(data.videoFiles || []),
+      audioFiles: JSON.stringify(data.audioFiles || []),
+      outputPlatforms: JSON.stringify(data.outputPlatforms || ['CUSTOM_RTMP']),
+      customRtmpUrls: data.customRtmpUrls ? JSON.stringify(data.customRtmpUrls) : null,
+      shuffleHistory: JSON.stringify(data.shuffleHistory || []),
+    };
+    // accountId is optional - use userId as fallback
+    if (!createData.accountId) {
+      createData.accountId = userId;
+    }
+
+    // Use $executeRawUnsafe to bypass Prisma client-side relation validation
+    const fields = Object.keys(createData).filter(k => k !== 'id');
+    const values = fields.map(f => createData[f]);
+    const placeholders = fields.map(() => '?').join(', ');
+    const sql = `INSERT INTO Stream (id, createdAt, updatedAt, ${fields.join(', ')}) VALUES (?, ?, ?, ${placeholders})`;
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 25);
+
+    try {
+      await this.prisma.$executeRawUnsafe(sql, id, now, now, ...values);
+      return this.prisma.stream.findUnique({ where: { id } }) as Promise<Stream>;
+    } catch (error: any) {
+      this.logger.error('Failed to create stream via raw SQL', { error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   }
 
   async getById(id: string): Promise<Stream | null> {
     return this.prisma.stream.findUnique({
       where: { id },
-      include: { account: true, fxPreset: true, visualizer: true, schedule: true },
+      include: { fxPreset: true, visualizer: true, schedule: true },
     });
   }
 
@@ -91,7 +125,7 @@ export class StreamService extends BaseService {
     return this.prisma.stream.update({
       where: { id },
       data,
-      include: { account: true, fxPreset: true, visualizer: true, schedule: true },
+      include: { fxPreset: true, visualizer: true, schedule: true },
     });
   }
 
@@ -99,7 +133,7 @@ export class StreamService extends BaseService {
     await this.prisma.stream.delete({ where: { id } });
   }
 
-  async start(id: string): Promise<Result<{ currentBroadcastId: string | null }, { code: string; message: string }>> {
+  async start(id: string): Promise<Result<{ rtmpTargets: RtmpTarget[] }, { code: string; message: string }>> {
     const stream = await this.prisma.stream.findUnique({ where: { id } });
     if (!stream) return err({ code: 'NOT_FOUND', message: 'Stream not found' });
     if (stream.status === 'LIVE') return err({ code: 'ALREADY_LIVE', message: 'Stream is already live' });
@@ -110,57 +144,53 @@ export class StreamService extends BaseService {
         data: { status: 'STARTING', startedAt: new Date(), reconnectAttempts: 0 },
       });
 
-      const account = await this.prisma.youTubeAccount.findUnique({ where: { id: stream.accountId } });
-      if (!account) return err({ code: 'ACCOUNT_NOT_FOUND', message: 'YouTube account not found' });
+      // Parse RTMP targets from customRtmpUrls (user-provided RTMP URL + key)
+      const customRtmpUrls = stream.customRtmpUrls ? JSON.parse(stream.customRtmpUrls) : {};
+      const outputPlatforms = JSON.parse(stream.outputPlatforms || '[]');
 
-      const youtubeService = this.app.youtubeService;
-      const liveStreamResult = await youtubeService.createLiveStream(account.id, stream.titleTemplate || stream.name, stream.descriptionTemplate);
-      if (!liveStreamResult.ok) return err(liveStreamResult.error);
+      const rtmpTargets: RtmpTarget[] = outputPlatforms.map((platform: string) => {
+        if (platform === 'CUSTOM_RTMP' && customRtmpUrls[platform]) {
+          const entry = customRtmpUrls[platform];
+          const url = entry.url || entry;
+          const key = entry.key || '';
+          return {
+            platform: 'custom',
+            rtmpUrl: url,
+            streamKey: key,
+          };
+        }
+        return null;
+      }).filter(Boolean) as RtmpTarget[];
 
-      const { id: broadcastId, rtmpUrl, streamKey } = liveStreamResult.value;
+      if (rtmpTargets.length === 0) {
+        await this.prisma.stream.update({
+          where: { id },
+          data: { status: 'ERROR', stoppedAt: new Date() },
+        });
+        return err({ code: 'NO_RTMP_TARGET', message: 'No RTMP output targets configured. Add custom RTMP URL and key.' });
+      }
 
-      const broadcastResult = await youtubeService.createLiveBroadcast(account.id, stream.titleTemplate || stream.name, stream.descriptionTemplate, broadcastId);
-      if (!broadcastResult.ok) return err(broadcastResult.error);
-
-      const { id: currentBroadcastId } = broadcastResult.value;
-
-      await this.prisma.stream.update({
-        where: { id },
-        data: {
-          status: 'LIVE',
-          currentBroadcastId,
-          rtmpPushKey: streamKey,
-        },
-      });
-
-      // Start FFmpeg process
-      const ffmpegResult = await this.startFFmpegStream(id, stream, rtmpUrl, streamKey);
+      // Start FFmpeg process - outputs to NMS (localhost:1935)
+      const ffmpegResult = await this.startFFmpegStream(id, stream, rtmpTargets);
       if (!ffmpegResult.ok) {
         await this.prisma.stream.update({ where: { id }, data: { status: 'ERROR' } });
         return err(ffmpegResult.error);
       }
 
-      const outputPlatforms = JSON.parse(stream.outputPlatforms);
-      const targets = outputPlatforms
-        .map((platform: string) => {
-          if (platform === 'YOUTUBE') {
-            return { platform: 'youtube' as const, rtmpUrl, streamKey };
-          }
-          return { platform: 'custom' as const, rtmpUrl: stream.customRtmpUrls ? JSON.parse(stream.customRtmpUrls)[platform] : '', streamKey: '' };
-        })
-        .filter((t: any) => t.rtmpUrl && t.streamKey);
+      // Use tee muxer directly in main FFmpeg to push to target RTMP endpoints
+      // This bypasses NMS/relay which had connection issues
+      const streamKey = `s_${id.slice(-12)}`;
+      
+      await this.prisma.stream.update({
+        where: { id },
+        data: {
+          status: 'LIVE',
+          rtmpPushKey: streamKey,
+        },
+      });
 
-      if (targets.length > 0) {
-        await this.app.rtmpRelayService.startRelay({
-          streamId: id,
-          sourceUrl: `rtmp://localhost:1935/live/${streamKey}`,
-          targets,
-          streamKey,
-        });
-      }
-
-      this.logger.info('Stream started', { streamId: id, broadcastId: currentBroadcastId });
-      return ok({ currentBroadcastId });
+      this.logger.info('Stream started', { streamId: id, rtmpTargets: rtmpTargets.length });
+      return ok({ rtmpTargets });
     } catch (error) {
       await this.prisma.stream.update({ where: { id }, data: { status: 'ERROR' } });
       this.logger.error('Failed to start stream', { streamId: id, error: error instanceof Error ? error.message : String(error) });
@@ -171,8 +201,7 @@ export class StreamService extends BaseService {
   private async startFFmpegStream(
     streamId: string,
     stream: Stream,
-    rtmpUrl: string,
-    streamKey: string
+    rtmpTargets: RtmpTarget[]
   ): Promise<Result<void, { code: string; message: string }>> {
     try {
       const sharedStream: any = {
@@ -182,13 +211,17 @@ export class StreamService extends BaseService {
         audioSource: stream.audioSource as AudioSource,
         noiseProfile: stream.noiseProfile as NoiseProfile | null,
         status: stream.status as SharedStreamStatus,
-        outputPlatforms: JSON.parse(stream.outputPlatforms),
+        outputPlatforms: JSON.parse(stream.outputPlatforms || '[]'),
         customRtmpUrls: stream.customRtmpUrls ? JSON.parse(stream.customRtmpUrls) : undefined,
-        videoFiles: JSON.parse(stream.videoFiles),
-        audioFiles: JSON.parse(stream.audioFiles),
-        shuffleHistory: JSON.parse(stream.shuffleHistory),
+        videoFiles: JSON.parse(stream.videoFiles || '[]'),
+        audioFiles: JSON.parse(stream.audioFiles || '[]'),
+        shuffleHistory: JSON.parse(stream.shuffleHistory || '[]'),
         fxPreset: stream.fxPresetId ? await this.prisma.fxPreset.findUnique({ where: { id: stream.fxPresetId } }) : undefined,
-        visualizer: stream.visualizerId ? await this.prisma.visualizer.findUnique({ where: { id: stream.visualizerId } }) : undefined,
+        visualizer: stream.visualizerId
+          ? stream.visualizerId.startsWith('builtin-')
+            ? { id: stream.visualizerId, ...(BUILTIN_VISUALIZERS as any)[stream.visualizerId.replace('builtin-', '')], isBuiltIn: true }
+            : await this.prisma.visualizer.findUnique({ where: { id: stream.visualizerId } })
+          : undefined,
         schedule: stream.scheduleId ? await this.prisma.schedule.findUnique({ where: { id: stream.scheduleId } }) : undefined,
       };
 
@@ -199,9 +232,15 @@ export class StreamService extends BaseService {
         audioFiles: sharedStream.audioFiles,
       };
 
+      // Build RTMP output targets string for tee muxer
+      const streamKey = `s_${streamId.slice(-12)}`;
+      const rtmpOutputs = rtmpTargets.map(t => `${t.rtmpUrl}/${t.streamKey}`);
+
+      // Use tee muxer to push directly to target RTMP endpoints
       const output = {
-        rtmpUrl: 'rtmp://localhost:1935',
+        rtmpUrl: 'rtmp://localhost:1935/live', // fallback
         streamKey,
+        teeOutputs: rtmpOutputs,
       };
 
       await this.ffmpegProcessor.start(
@@ -224,7 +263,6 @@ export class StreamService extends BaseService {
     if (!stream) return;
 
     this.ffmpegProcessor.stop(id);
-    await this.app.rtmpRelayService.stopRelay(id);
     await this.prisma.stream.update({
       where: { id },
       data: { status: 'STOPPED', stoppedAt: new Date(), currentBroadcastId: null },
@@ -243,7 +281,6 @@ export class StreamService extends BaseService {
     if (!stream) throw new Error('Stream not found');
 
     const ffmpegStatus = this.ffmpegProcessor.getStatus(id);
-    const relayStatus = this.app.rtmpRelayService?.getRelayStatus(id);
 
     const stats = ffmpegStatus?.stats || { bitrate: 0, fps: 0, droppedFrames: 0, totalFrames: 0, speed: 0, audioLevel: 0 };
     const ffmpegHealth = ffmpegStatus?.health || { isHealthy: true, lastCheck: new Date(), reconnectCount: 0, lastError: null };

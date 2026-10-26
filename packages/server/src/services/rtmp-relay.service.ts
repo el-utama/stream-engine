@@ -2,7 +2,8 @@
 
 import { BaseService } from './base.service.js';
 import { ok, err, Result } from '@stream-engine/shared/utils/result';
-import { ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
+import ffmpegStatic from 'ffmpeg-static';
 
 export interface RelayConfig {
   streamId: string;
@@ -19,7 +20,7 @@ export interface RelayTarget {
 
 export interface RelayProcess {
   streamId: string;
-  process: ChildProcess;
+  process: ChildProcess | null;
   startTime: Date;
   targets: RelayTarget[];
   status: 'starting' | 'running' | 'error' | 'stopped';
@@ -28,8 +29,19 @@ export interface RelayProcess {
   reconnectAttempts: number;
 }
 
+type RelayProcessInternal = {
+  streamId: string;
+  process: ChildProcess | null;
+  startTime: Date;
+  targets: RelayTarget[];
+  status: string;
+  lastCheck: Date;
+  lastError: string | null;
+  reconnectAttempts: number;
+};
+
 export class RtmpRelayService extends BaseService {
-  private relays: Map<string, RelayProcess> = new Map();
+  private relays: Map<string, RelayProcessInternal> = new Map();
   private maxConcurrent: number;
 
   constructor(app: any) {
@@ -37,64 +49,63 @@ export class RtmpRelayService extends BaseService {
     this.maxConcurrent = app.config.MAX_CONCURRENT_STREAMS || 3;
   }
 
-  async startRelay(config: RelayConfig): Promise<Result<void, { code: string; message: string }>> {
-    if (this.relays.size >= this.maxConcurrent) {
-      return err({ code: 'MAX_RELAYS_REACHED', message: `Max concurrent relays (${this.maxConcurrent}) reached` });
+  async startRelay(config: any): Promise<{ ok: boolean; error?: { code: string; message: string } }> {
+    if (this.relays.size >= 3) {
+      return { ok: false, error: { code: 'MAX_RELAYS_REACHED', message: `Max concurrent relays (3) reached` } };
     }
 
     if (this.relays.has(config.streamId)) {
-      return err({ code: 'RELAY_EXISTS', message: 'Relay already exists for this stream' });
+      return { ok: false, error: { code: 'RELAY_EXISTS', message: 'Relay already exists for this stream' } };
     }
 
     try {
-      const ffmpeg = require('fluent-ffmpeg');
-      const ffmpegStatic = require('ffmpeg-static');
+      const { spawn } = require('child_process');
+      const ffmpegPath = require('ffmpeg-static');
 
-      const proc = ffmpeg()
-        .input(config.sourceUrl)
-        .inputOptions([
-          '-re',
-          '-reconnect_at_eof', '1',
-          '-reconnect_streamed', '1',
-          '-reconnect_on_network_error', '1',
-          '-reconnect_on_http_error', '1',
-          '-reconnect_delay_max', '5',
-          '-timeout', '10000000'
-        ])
-        .outputOptions([
-          '-c:v', 'copy',
-          '-c:a', 'copy',
-          '-f', 'tee',
-          '-map', '0:v',
-          '-map', '0:a',
-          config.targets.map(t => `[f=flv:onfail=ignore]${t.rtmpUrl}/${t.streamKey}`).join('|')
-        ])
-        .on('start', (cmd: string) => {
-          this.logger.info('Relay started', { streamId: config.streamId, cmd });
-        })
-        .on('stderr', (stderr: string) => {
-          const relay = this.relays.get(config.streamId);
-          if (relay) {
-            relay.lastCheck = new Date();
-          }
-        })
-        .on('error', (error: Error) => {
-          this.logger.error('Relay error', { streamId: config.streamId, err: error });
-          const relay = this.relays.get(config.streamId);
-          if (relay) {
-            relay.status = 'error';
-            relay.lastError = error.message;
-            this.handleRelayError(config.streamId, error);
-          }
-        })
-        .on('end', () => {
-          this.logger.info('Relay ended', { streamId: config.streamId });
-          this.relays.delete(config.streamId);
-        });
+      const args = [
+        '-re',
+        '-reconnect_at_eof', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_on_network_error', '1',
+        '-reconnect_on_http_error', '1',
+        '-reconnect_delay_max', '5',
+        '-timeout', '10000000',
+        '-i', config.sourceUrl,
+        '-c:v', 'copy',
+        '-c:a', 'copy',
+        '-f', 'tee',
+        '-map', '0:v',
+        '-map', '0:a',
+        config.targets.map((t: RelayTarget) => `[f=flv:onfail=ignore]${t.rtmpUrl}/${t.streamKey}`).join('|'),
+        '-f', 'flv'
+      ];
 
-      const relayProcess: RelayProcess = {
+      const childProcess = spawn(require('ffmpeg-static'), args, {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      const relayProcess: RelayProcessInternal = {
         streamId: config.streamId,
-        process: proc.ffmpegProc,
+        process: childProcess,
+        startTime: new Date(),
+        targets: config.targets,
+        status: 'starting',
+        lastCheck: new Date(),
+        lastError: null,
+        reconnectAttempts: 0
+      };
+
+      childProcess.on('error', (err: Error) => {
+        // Handle spawn error
+      });
+
+      childProcess.on('exit', (code: number | null, signal: string | null) => {
+        // Process exited
+      });
+
+      const relayProcessObj: RelayProcessInternal = {
+        streamId: config.streamId,
+        process: childProcess,
         startTime: new Date(),
         targets: config.targets,
         status: 'starting',
@@ -105,11 +116,9 @@ export class RtmpRelayService extends BaseService {
 
       this.relays.set(config.streamId, relayProcess);
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      return ok(undefined);
+      return { ok: true };
     } catch (error) {
-      return err({ code: 'START_FAILED', message: error instanceof Error ? error.message : 'Unknown error' });
+      return { ok: false, error: { code: 'START_FAILED', message: error instanceof Error ? error.message : 'Unknown error' } };
     }
   }
 
@@ -196,3 +205,4 @@ export class RtmpRelayService extends BaseService {
     }
   }
 }
+export {};

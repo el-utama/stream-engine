@@ -17,6 +17,34 @@ interface CreateFxPresetBody {
   videoFilters: Record<string, any>;
   audioFilters: Record<string, any>;
   intensity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'AGGRESSIVE';
+  sourceType?: string;
+  videoFiles?: string[];
+  playlistId?: string;
+  outputPlatforms?: string[];
+  customRtmpUrls?: Record<string, { url: string; key: string }>;
+  resolution?: string;
+  fps?: number;
+  videoBitrate?: number;
+  audioBitrate?: number;
+  codec?: string;
+  preset?: string;
+  loopMode?: string;
+  shuffleEnabled?: boolean;
+  crossfadeDuration?: number;
+  fxPresetId?: string;
+  customFxFilters?: string;
+  audioSource?: string;
+  audioFiles?: string[];
+  noiseProfile?: string;
+  noiseAmplitude?: number;
+  scheduleId?: string;
+  maxDuration?: number;
+  autoRestart?: boolean;
+  titleTemplate?: string;
+  descriptionTemplate?: string;
+  tagsTemplate?: string;
+  thumbnailPath?: string;
+  visualizerId?: string;
 }
 
 interface UpdateFxPresetBody {

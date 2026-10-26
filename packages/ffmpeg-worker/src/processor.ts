@@ -39,6 +39,8 @@ export interface StreamInput {
 export interface StreamOutput {
   rtmpUrl: string;
   streamKey: string;
+  // For tee muxer: array of target RTMP URLs
+  teeOutputs?: string[];
 }
 
 export class FFmpegProcessor {
@@ -145,17 +147,20 @@ export class FFmpegProcessor {
       // Custom filters appended
     }
 
-    // Add visualizer if no video input or visualizer source
+    let visualizerGraph = '';
+
+    // Handle visualizer without video input
     if (input?.sourceType === 'VISUALIZER' || !input?.videoFiles?.length) {
       if (visualizer) {
         const vizFilter = VisualizerFilters.byType(visualizer.type, visualizer.config);
-        const withBg = VisualizerFilters.withBackground(vizFilter, {
+        visualizerGraph = VisualizerFilters.withBackground(vizFilter, {
           backgroundType: visualizer.backgroundType,
           backgroundConfig: visualizer.backgroundConfig,
           width: visualizer.width,
           height: visualizer.height,
         });
-        builder.videoFilters.push(withBg);
+        // Replace [viz] output with [vout] for encoder mapping
+        visualizerGraph = visualizerGraph.replace(/\[viz\]\s*$/, '[vout]');
       }
     }
 
@@ -167,7 +172,28 @@ export class FFmpegProcessor {
     // Apply audio loudnorm
     builder.loudnorm(-16, 0.5);
 
-    return builder.build();
+    // Build the rest of the filter graph (FX + audio only, no visualizer video chain)
+    const restGraph = builder.build();
+
+    // Combine visualizer graph with rest
+    if (visualizerGraph) {
+      const parts = [visualizerGraph];
+      // Extract audio part from restGraph (after the first semicolon if present)
+      const semicolonIdx = restGraph.indexOf(';');
+      if (semicolonIdx >= 0) {
+        parts.push(restGraph.substring(semicolonIdx + 1));
+      } else if (restGraph) {
+        parts.push(restGraph);
+      }
+      return parts.join(';');
+    }
+
+    // If no visualizer graph but we need video output, add a default black color source
+    if (restGraph && !restGraph.includes('[vout]')) {
+      return `color=c=black:s=${stream.resolution || '1920x1080'}:r=${stream.fps || 30}[vout];${restGraph}`;
+    }
+
+    return restGraph;
   }
 
   private async buildArgs(
@@ -181,6 +207,9 @@ export class FFmpegProcessor {
     // Input options
     if (input.sourceType === 'RTMP_PUSH') {
       args.push('-listen', '1', '-i', `rtmp://0.0.0.0:1935/live/${stream.rtmpPushKey}`);
+    } else if (input.sourceType === 'VISUALIZER') {
+      // No video input, visualizer generates it from audio
+      args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
     } else if (input.videoFiles?.length) {
       // Concat multiple video files
       if (input.videoFiles.length > 1) {
@@ -188,9 +217,6 @@ export class FFmpegProcessor {
       } else {
         args.push('-re', '-stream_loop', '-1', '-i', input.videoFiles[0]);
       }
-    } else if (input.sourceType === 'VISUALIZER') {
-      // No video input, visualizer generates it
-      args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
     }
 
     // Audio input if separate
@@ -206,9 +232,7 @@ export class FFmpegProcessor {
     const encoderArgs = await this.getVideoEncoderArgs(stream);
     args.push(
       '-map', '[vout]',
-      '-c:v', encoderName,
       ...encoderArgs,
-      '-pix_fmt', 'yuv420p'
     );
 
     // Audio encoding
@@ -220,12 +244,21 @@ export class FFmpegProcessor {
       '-ar', '48000'
     );
 
-    // Output
-    args.push(
-      '-f', 'flv',
-      '-flv_size', '65536',
-      `${output.rtmpUrl}/${output.streamKey}`
-    );
+    // Output - use tee muxer for multiple targets, single output otherwise
+    if (output.teeOutputs && output.teeOutputs.length > 0) {
+      // Use tee muxer to output to multiple RTMP targets
+      const teeOutputs = output.teeOutputs.map(url => `[f=flv:onfail=ignore]${url}`).join('|');
+      args.push(
+        '-f', 'tee',
+        teeOutputs
+      );
+    } else {
+      // Single output (backward compatibility)
+      args.push(
+        '-f', 'flv',
+        `${output.rtmpUrl}/${output.streamKey}`
+      );
+    }
 
     return args;
   }
