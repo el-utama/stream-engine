@@ -50,7 +50,155 @@
 
 ---
 
-## 🏗 Architecture
+## 🎯 Tujuan Pembuatan Repo Ini
+
+**Mengapa repo ini dibuat?**
+
+Sebagai creator/streamer yang ingin menjalankan **stream 24/7 otomatis** ke YouTube (dan platform lain) tanpa harus:
+- Menyala laptop/PC 24 jam
+- Manual klik "Go Live" setiap hari
+- Repot atur OBS + atur jadwal manual
+- Khawatir stream putus di tengah malam
+
+**Target utama:**
+1. **Stream 24/7 "set and forget"** - Buat jadwal sekali, jalan otomatis bulan-bulan
+2. **Anti-Content ID / Anti-Ghosting** - Filter video/audio otomatis biar aman dari claim
+3. **Multi-platform sekaligus** - Satu stream, langsung ke YouTube + Twitch + Facebook + Custom RTMP
+4. **Tanpa install software berat** - Cukup buka browser, sudah bisa atur semua (OBS opsional untuk push RTMP)
+5. **Quality control otomatis** - VMAF testing biar tahu filter yang dipake tidak merusak kualitas video
+
+**Use case nyata:**
+- Radio musik 24/7 dengan visualizer audio-reactive
+- Re-stream konten evergreen (podcast, kuliah, webinar) berulang
+- Backup stream otomatis ke platform kedua
+- Jual jasa "managed streaming" ke client tanpa perlu server sendiri
+
+---
+
+## 📈 Progres Saat Ini
+
+### ✅ **Sudah Selesai (Production Ready)**
+
+| Fase | Komponen | Status | Catatan |
+|------|----------|--------|---------|
+| **Phase 1** | Foundation: Monorepo, TypeScript, Prisma, SQLite, Fastify | ✅ | Base solid |
+| **Phase 2** | Streaming Engine: FFmpeg + Node-Media-Server, tee muxer | ✅ | Multi-target streaming work |
+| **Phase 2.5** | YouTube OAuth PKCE, Multi-account, Encryption AES-256-GCM | ✅ | Auth production-ready |
+| **Phase 3** | Scheduling (BullMQ v6), Smart Metadata Templates, YouTube Broadcast API | ✅ | Cron + auto-stop work |
+| **Phase 4 Week 1** | **VMAF Quality Testing** (libvmaf), **Custom Filter Chains** (export/import/duplicate/diff), **Tee Muxer Direct** (bypass NMS relay) | ✅ | Core FX Engine done |
+
+### 🔧 **Built-in Presets Tersedia (7 preset)**
+| Preset | Cocok Untuk | VMAF Est. | Intensitas |
+|--------|-------------|-----------|------------|
+| `soft` | Minimal processing, archival | 98+ | LOW |
+| `balanced` | General purpose, daily driver | 95+ | MEDIUM |
+| `aggressive` | Max anti-ghosting | 90+ | HIGH |
+| `cid_aware` | Content ID evasion moderat | 92+ | MEDIUM |
+| `cid_aggressive` | Max CID evasion | 85+ | HIGH |
+| `music_stream` | Audio-reactive + visualizer | 93+ | MEDIUM |
+| `gaming` | High motion (FPS, battle royale) | 94+ | MEDIUM |
+
+### 🎨 Visualizers Built-in (5)
+- **Spectrum Bars** - FFT bars klasik
+- **Waveform** - Mirror/line waveform dengan glow
+- **Circular** - Radial frequency display
+- **Dual View** - Spectrum + Waveform combined
+- **Minimal** - Clean single line
+
+---
+
+## ⚠️ Kendala & Blocker Saat Ini
+
+### 🔴 **Critical (Harus diselesaikan dulu)**
+| Kendala | Dampak | Solusi / Workaround |
+|---------|--------|---------------------|
+| **YouTube Live Streaming belum aktif** di channel test | Tidak bisa test `POST /api/streams/:id/start` end-to-end ke YouTube | Enable di [YouTube Studio](https://studio.youtube.com) → Create → Go Live → verifikasi nomor HP → tunggu 24 jam |
+| **Frontend (React SPA) belum ada** | Harus pakai `curl`/Postman untuk test API | Prioritas Phase 6: Build React SPA dengan Vite |
+
+### 🟡 **Medium (Bisa di-defer)**
+| Kendala | Dampak | Rencana |
+|---------|--------|---------|
+| **Visualizer Preview API** belum ada | Tidak bisa preview visualizer sebelum dipakai | Phase 4 Week 2: `GET /api/visualizers/:id/preview` return MP4/GIF |
+| **FX Preset Editor UI** belum ada | Harus manual JSON untuk custom preset | Phase 4 Week 2: React component editor dengan live preview |
+| **Batch VMAF Testing** belum ada | Harus test preset satu-satu | Phase 4 Week 3: `POST /api/fx-presets/batch-test-vmaf` |
+| **Docker GPU Support** belum tested | Hardware acceleration (NVENC/QSV) belum diverifikasi di container | Butuh host dengan GPU + nvidia-container-toolkit |
+
+### 🟢 **Low / Nice to Have**
+- Prometheus metrics + Grafana dashboard
+- Multi-region RTMP ingest (untuk latency rendah global)
+- Kubernetes deployment configs
+- Stream analytics & retention dashboard
+
+---
+
+## ⏱ Waktu Realisasi Logis (Estimasi Realistis)
+
+> **Catatan:** Estimasi ini untuk **1 developer full-time** (8 jam/hari) dengan asumsi environment sudah siap (Node.js, FFmpeg, Redis, Google Cloud Console project sudah dibuat).
+
+| Fase | Scope | Estimasi | Ketergantungan |
+|------|-------|----------|----------------|
+| **Phase 4 Week 2** | Visualizer Preview API + FX Preset Editor UI + Preset Tagging/Search | **1 minggu** | Butuh React SPA (Phase 6) untuk UI |
+| **Phase 4 Week 3** | Batch VMAF, Preset Versioning UI, Smart Metadata Builder, Advanced Scheduling | **1 minggu** | Butuh React SPA |
+| **Phase 5** | Frontend (React SPA): Dashboard, Accounts, Stream Wizard, FX Editor, Visualizer Config, Real-time WS | **2-3 minggu** | Besar, butuh desain UI dulu |
+| **Phase 6** | Production Hardening: Docker GPU, Prometheus/Grafana, Multi-region, K8s, CI/CD | **1-2 minggu** | Butuh akses cloud/GPU |
+| **Total ke MVP Production** | **5-6 minggu** | | |
+
+### Breakdown Harian (Contoh Phase 5 - Frontend 2 minggu):
+| Hari | Fokus |
+|------|-------|
+| 1-2 | Setup Vite + React + Tailwind + Router + Socket.io client |
+| 3-4 | Auth Flow (OAuth PKCE), Account Management Page |
+| 5-6 | Dashboard (Stream List, Status Cards, Quick Actions) |
+| 7-8 | Stream Creation Wizard (Multi-step: Source → Output → FX → Visualizer → Schedule) |
+| 9-10 | FX Preset Editor (Live Preview Canvas, JSON ↔ Form sync, VMAF Test button) |
+| 11-12 | Visualizer Config UI (Color picker, FFT controls, Background picker) |
+| 13-13 | Schedule Calendar UI (Cron builder visual, Timezone picker) |
+| 14 | Polish, Bugfix, E2E Test |
+
+---
+
+## 🚀 Quick Start (Ringkas)
+
+```bash
+# 1. Clone & Install
+git clone https://github.com/el-utama/stream-engine.git
+cd stream-engine
+pnpm install
+
+# 2. Setup Environment
+cp packages/server/.env.example packages/server/.env
+# Edit .env → isi GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ENCRYPTION_MASTER_KEY
+
+# 3. Build & Run
+pnpm run build
+pnpm run dev
+
+# Server: http://localhost:3000
+# NMS RTMP: rtmp://localhost:1935
+# NMS HTTP: http://localhost:8000
+```
+
+---
+
+## 📚 Dokumentasi Lengkap
+
+Lihat sections di bawah:
+- [API Reference](#-api-reference) - Semua endpoint lengkap
+- [VMAF Quality Testing](#-vmaf-quality-testing) - Cara test preset
+- [Docker Deployment](#-docker-deployment) - Production deploy
+- [Configuration](#-configuration) - Built-in preset & custom filter
+
+---
+
+## 🤝 Butuh Bantuan?
+
+- **Issue/Bug**: [GitHub Issues](https://github.com/el-utama/stream-engine/issues)
+- **Diskusi**: [GitHub Discussions](https://github.com/el-utama/stream-engine/discussions)
+- **Roadmap**: Lihat [Projects](https://github.com/el-utama/stream-engine/projects)
+
+---
+
+**Made with ❤️ untuk komunitas streaming Indonesia** 🇮🇩
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
