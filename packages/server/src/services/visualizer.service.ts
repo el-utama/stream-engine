@@ -94,24 +94,25 @@ export class VisualizerService extends BaseService {
         backgroundConfig: config.backgroundConfig,
         width: config.width || 1920,
         height: config.height || 1080,
-      });
+      }).replace(/\[viz\]/g, '[vout]');
     }
 
-    return vizFilter;
+    return vizFilter.replace(/\[viz\]/g, '[vout]');
   }
 
   private buildSpectrumFilter(config: any): string {
-    return `[0:a]showspectrum=mode=combined:color=rainbow:scale=log:saturation=1:size=${config.width || 1920}x${config.height || 1080}:rate=${config.fps || 30}[viz]`;
+    return `[0:a]showspectrum=mode=combined:color=rainbow:scale=log:saturation=1:size=${config.width || 1920}x${config.height || 1080},fps=${config.fps || 30}[viz]`;
   }
 
   private buildWaveformFilter(config: any): string {
     const wave = config.waveform || {};
-    return `[0:a]showwaves=mode=${wave.style || 'cline'}:colors=${wave.color || 'white'}:size=${config.width || 1920}x${config.height || 1080}:rate=${config.fps || 30}[viz]`;
+    return `[0:a]showwaves=mode=${wave.style || 'cline'}:colors=${wave.color || 'white'}:size=${config.width || 1920}x${config.height || 1080},fps=${config.fps || 30}[viz]`;
   }
 
   private buildCircularFilter(config: any): string {
     const circ = config.circular || {};
-    return `[0:a]showcqt=size=${config.width || 1920}x${config.height || 1080}:rate=${config.fps || 30}:count=${circ.bars || 120}:cscheme=rainbow[viz]`;
+    const count = Math.min(circ.bars || 30, 30);
+    return `[0:a]showcqt=size=${config.width || 1920}x${config.height || 1080}:count=${count},fps=${config.fps || 30}[viz]`;
   }
 
   async generatePreview(id: string, duration: number): Promise<string> {
@@ -155,6 +156,53 @@ export class VisualizerService extends BaseService {
       return outputPath;
     } catch (error: any) {
       this.logger.error('Failed to generate preview', { error: error.message, filterGraph });
+      throw error;
+    }
+  }
+
+  async generateGifPreview(id: string, duration: number): Promise<string> {
+    let visualizer: any;
+    if (id.startsWith('builtin-')) {
+      const key = id.replace('builtin-', '');
+      visualizer = BUILTIN_VISUALIZERS[key as keyof typeof BUILTIN_VISUALIZERS];
+      if (!visualizer) throw new Error('Built-in visualizer not found');
+    } else {
+      visualizer = await this.prisma.visualizer.findUnique({ where: { id } });
+      if (!visualizer) throw new Error('Visualizer not found');
+    }
+
+    // Generate a simpler filter graph specifically for GIF (no background overlay complexity)
+    const gifFilterGraph = await this.generateFilter({
+      type: visualizer.type,
+      config: visualizer.config,
+      backgroundType: 'COLOR',
+      backgroundConfig: { color: visualizer.backgroundConfig?.color || '#000000' },
+      width: 480,
+      height: 270,
+      fps: 10,
+    });
+
+    const outputPath = `/tmp/preview-${id}-${Date.now()}.gif`;
+    const ffmpegPath = ffmpegStatic || 'ffmpeg';
+
+    try {
+      // Build complete filter graph with palette generation
+      const gifFilterGraphFull = `${gifFilterGraph};[vout]fps=10,scale=480:-1:flags=lanczos,split[vout1][pal];[pal]palettegen=stats_mode=diff[pal];[vout1][pal]paletteuse[vout_gif]`;
+
+      const args = [
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+        '-filter_complex', gifFilterGraphFull,
+        '-map', '[vout_gif]',
+        '-t', String(duration || 5),
+        '-y',
+        outputPath,
+      ];
+
+      await execFileAsync(ffmpegPath, args, { timeout: 30000 });
+
+      return outputPath;
+    } catch (error: any) {
+      this.logger.error('Failed to generate GIF preview', { error: error.message, filterGraph: gifFilterGraph });
       throw error;
     }
   }

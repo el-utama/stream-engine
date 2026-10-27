@@ -75,10 +75,10 @@ export class VisualizerFilters {
         break;
       case 'GRADIENT':
         const grad = backgroundConfig.gradient || {};
-        const dir = grad.direction || 'vertical';
-        const stops = (grad.stops || [{position: 0, color: '#000000'}, {position: 1, color: '#1a1a2e'}])
-          .map((s: { position: number; color: string }) => `${s.position}:${s.color}`).join('|');
-        bgInput = `gradients=s=${width}x${height}:c0=${stops.split('|')[0].split(':')[1]}:c1=${stops.split('|')[1].split(':')[1]}:direction=${dir}[bg]`;
+        const stops = (grad.stops || [{position: 0, color: '#000000'}, {position: 1, color: '#1a1a2e'}]);
+        const c0 = stops[0]?.color || '#000000';
+        const c1 = stops[1]?.color || '#1a1a2e';
+        bgInput = `gradients=s=${width}x${height}:c0=${c0}:c1=${c1}[bg]`;
         break;
       case 'IMAGE':
         bgInput = `movie=${backgroundConfig.image?.url}:loop=0,scale=${width}:${height}[bg]`;

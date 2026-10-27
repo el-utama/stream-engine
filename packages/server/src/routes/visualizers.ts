@@ -114,18 +114,29 @@ const visualizerRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:id/preview', {
     schema: {
-      params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-z0-9]{25}$' } }, required: ['id'], additionalProperties: false },
+      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
       querystring: {
         type: 'object',
         properties: {
-          duration: { type: 'integer', minimum: 5, maximum: 60, default: 10 }
+          duration: { type: 'integer', minimum: 5, maximum: 60, default: 10 },
+          format: { type: 'string', enum: ['mp4', 'gif'], default: 'mp4' }
         },
         additionalProperties: false
       }
     },
-  }, async (request: FastifyRequest<{ Params: VisualizerIdParams; Querystring: VisualizerPreviewQuery }>, reply) => {
-    const url = await visualizerService.generatePreview(request.params.id, (request.query as any).duration);
-    return { url };
+  }, async (request: FastifyRequest<{ Params: VisualizerIdParams; Querystring: VisualizerPreviewQuery & { format?: 'mp4' | 'gif' } }>, reply) => {
+    const { duration, format } = request.query as any;
+    let filePath: string;
+    if (format === 'gif') {
+      filePath = await visualizerService.generateGifPreview(request.params.id, duration || 5);
+    } else {
+      filePath = await visualizerService.generatePreview(request.params.id, duration || 10);
+    }
+    const filename = filePath.split('/').pop() || 'preview.mp4';
+    return reply
+      .header('Content-Type', format === 'gif' ? 'image/gif' : 'video/mp4')
+      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .send(await import('fs').then(fs => fs.promises.readFile(filePath)));
   });
 };
 
